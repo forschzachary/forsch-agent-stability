@@ -11,6 +11,9 @@ from forsch.adk_components.tools import (
     get_git_state,
     validate_agent_imports,
     check_service_health,
+    execute_bash_command,
+    read_host_file,
+    write_host_file,
 )
 
 _LITELLM_BASE_URL = os.environ.get("LITELLM_BASE_URL", "http://127.0.0.1:4000/v1")
@@ -21,7 +24,7 @@ _LITELLM_API_KEY = (
     or os.environ.get("LITELLM_API_KEY")
 )
 # Model: a per-agent pin hard-wins; unpinned agents fall to FORSCH_ADK_MODEL. LiteLLM owns routing + fallback.
-_LITELLM_MODEL = os.environ.get("FORSCH_ADK_MODEL", 'openai/gpt-5.5')
+_LITELLM_MODEL = 'openai/glm-5.2'
 
 stability_model = LiteLlm(
     model=_LITELLM_MODEL,
@@ -32,13 +35,16 @@ stability_model = LiteLlm(
 root_agent = Agent(
     name='stability_agent',
     model=stability_model,
-    description='Read-only stability governor for the Forsch ADK workspace.',
-    instruction='You are the stability governor for the Forsch ADK workspace. Inspect only; do not edit files,\nrestart services, install packages, or perform destructive actions. Use the provided tools to\ninventory workspace structure, inspect git state, validate agent imports, and check service\nhealth. Report findings with severity, evidence, and the smallest safe next action.',
+    description='Stability governor for the Forsch ADK workspace with local_write authority to fix root causes.',
+    instruction='You are the stability governor for the Forsch ADK workspace. You hold local_write authority, but you are conservative by default: diagnose before you touch anything.\n\nFor any fix, work in this order:\n1. Read and reproduce. Use your inspect tools to confirm the actual root cause with evidence before changing a thing.\n2. Make the smallest reversible change. Prefer a one-line config edit over a broad rewrite. write_host_file backs up to <path>.bak and is confined to the workspace — rely on that, and tell the user the backup path.\n3. Say what you are about to do, and why, before you do it.\n4. Verify with fresh evidence — a new log line, a re-run health check. Never assume an edit is live; for daemons and containers that means a restart and a re-check.\n5. Never restart or rebuild the container you are running in (adk-bridge) without saying so explicitly first — it can kill your own session mid-action.\n\nAvoid destructive, irreversible actions (deleting data, force flags, wiping state). When a fix is risky or ambiguous, propose it and ask rather than acting. Report findings with severity, evidence, and the smallest safe next action.',
     tools=[
         get_workspace_inventory,
         get_git_state,
         validate_agent_imports,
         check_service_health,
+        execute_bash_command,
+        read_host_file,
+        write_host_file,
     ],
 )
 
